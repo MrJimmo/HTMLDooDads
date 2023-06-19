@@ -44,25 +44,25 @@ figure out the vertices based on the radius of the circle.
 These are all displays of the same maze in various states...
 
 **Generated maze, Circular**:
-<img src=".\/MazeGeneratorMedia/Circular_10x10.png"/>
+<img src=".\/MazeGeneratorMedia/Circular_10x10.PNG"/>
 
 **Generated maze, Circular, solved**:
-<img src=".\/MazeGeneratorMedia/Circular_10x10_solved.png"/>
+<img src=".\/MazeGeneratorMedia/Circular_10x10_solved.PNG"/>
 
 **Generated Maze, Circular, Black & White**:
-<img src=".\/MazeGeneratorMedia/Circular_10x10_BW.png"/>
+<img src=".\/MazeGeneratorMedia/Circular_10x10_BW.PNG"/>
 
 **Generated Maze, Circular, Black & White, Solved**:
-<img src=".\/MazeGeneratorMedia/Circular_10x10_BW_Solved.png"/>
+<img src=".\/MazeGeneratorMedia/Circular_10x10_BW_Solved.PNG"/>
 
 **Generated maze, Rectangular**:
-<img src=".\/MazeGeneratorMedia/Rectangular_10x10.png"/>
+<img src=".\/MazeGeneratorMedia/Rectangular_10x10.PNG"/>
 
 **Generated maze, Rectangular, solved**:
-<img src=".\/MazeGeneratorMedia/Rectangular_10x10_solved.png"/>
+<img src=".\/MazeGeneratorMedia/Rectangular_10x10_solved.PNG"/>
 
 **Generated Maze, Rectangular, Black & White**:
-<img src=".\/MazeGeneratorMedia/Rectangular_10x10_BW.png"/>
+<img src=".\/MazeGeneratorMedia/Rectangular_10x10_BW.PNG"/>
 
 **Generated Maze, Rectangular, Black & White, Solved**:
-<img src=".\/MazeGeneratorMedia/Rectangular_10x10_BW_Solved.png"/>
+<img src=".\/MazeGeneratorMedia/Rectangular_10x10_BW_Solved.PNG"/>
