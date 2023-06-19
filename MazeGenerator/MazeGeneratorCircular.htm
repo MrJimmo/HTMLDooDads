@@ -1,0 +1,509 @@
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" >
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>Circular Maze Generator</title>
+<script src="./MazeCell.js"></script>
+<script src="./Vector2D.js"></script>
+
+<script>
+
+/*
+    This version of a Maze Generator is inspired by the CodingTrain video series
+    https://www.youtube.com/watch?v=HyK_Q5rrcr4 -- Part 1
+    https://www.youtube.com/watch?v=D8UgRyRnvXU -- Part 2
+    https://www.youtube.com/watch?v=8Ju_uxJ9v44 -- Part 3
+
+    Source for those videos:
+    https://github.com/CodingTrain/Coding-Challenges/tree/main/010_Maze_DFS
+
+    This version generates the maze in a circular arrangement of cells.
+
+    It also has a few other hot-key features for solving, showing cell 'length',
+    pause, and flipping between the rectangular and circular arrangements.
+
+    [SPACE] = Pause the maze creation
+    "B"     = Draw maze as black lines on white bg, solution line is dashed.
+    "C"     = Flip between showing maze as circular or rectangular arrangement
+    "L"     = Show the stack size for each cell
+    "S"     = Show the solution for the maze.
+
+    "Solution" in this case, is considered to be the cell that has the longest
+    path back to the starting cell.  The starting cell in center of the grid.
+
+    3 URL Query params are supported:
+    "rows=<n>"  = Number of rows
+    "cols=<n>"  = Number of columns
+    "asbw"      = Show as Black & White (Solution will be shown as dashed line)
+
+    NOTE: This version does not use P5.js.
+
+    Also see the Polar Coordinates video, for some great education:
+    https://www.youtube.com/watch?v=O5wjXoFrau4&ab_channel=TheCodingTrain
+
+    Polar coordinates are used in this version, as it makes it easier to
+    figure out the vertices based on the radius of the circle.
+
+    Note: To calculate X,Y from Radius(r) and angle:
+        x = r * cos(angle)
+        y = r * sin(angle)
+*/
+
+let g_canvasElm, g_context;
+
+document.addEventListener("DOMContentLoaded", init, false);
+
+// Auditing vars for simple Elapsed Time calculation.
+let START_TIME  = 0;
+let FINISH_TIME = 0;
+
+let g_finished_creating_maze = false;
+
+let FRAME_IN_SECONDS = 60;
+
+let CANVAS_WIDTH;
+let CANVAS_HEIGHT;
+let CANVAS_WIDTH_HALF;
+let CANVAS_HEIGHT_HALF;
+
+// Used during creation of the maze solution.
+// "Stack Length" is arbitrary term, could also call it "Stack Size" or "Depth"
+let g_currentMaxStackLength = 0;
+
+// This will end up being the MazeCell object with the longest stack length,
+// which should be the 'Goal' cell.
+let g_cellWithMaxStackLength = -1;
+
+// Various flow control flags
+let control_paused            = false; // Toggle pause of maze creation
+let control_draw_as_circular  = true;  // Toggle drawing as circular or rect.
+let control_draw_stack_length = false; // Toggle showing each cell Stack length
+let control_draw_solution     = false; // Toggle showing solution.
+let control_draw_as_bw        = false; // Draw as black&white image
+
+/*
+    Key globals
+*/
+let g_cols       = 20;
+let g_rows       = 20;
+let g_cellHeight = 0;
+let g_cellWidth  = 0;
+
+let g_allCells;
+let g_cellStack = [];
+
+// This array will contain the list of cells there are part of the solution.
+let solved_maze_route = [];
+
+let currentCell;
+
+/*
+    Utility Functions
+*/
+
+// Generate random value between min and max
+function rnd(min, max) {
+    return (Math.random() * (max - min)) + min;
+}
+
+// Convert Degrees to Radians
+function degToRads(deg) {
+    return (Math.PI / 180.0) * deg;
+}
+
+// Convert Radians to Degrees (Not used, but included to show the complimentary)
+function radsToDegs(rad) {
+    return (180.0 / Math.PI) * rad;
+}
+
+// Simple enum for the WALL types.
+const WALL = Object.freeze({
+  TOP    : 0,
+  RIGHT  : 1,
+  BOTTOM : 2,
+  LEFT   : 3,
+});
+
+/*
+    This function returns the array index of the cell at row(r) x column(c)
+    It allows wrap-around for left/right cells, which makes the circular version
+    have paths that can run around the entire circle.
+*/
+function getIndex(row, col) {
+    // Don't allow Top/Bottom wrap-around
+    if ((row < 0) || (row > g_rows - 1)) {
+        return -1;
+    }
+
+    // Handle/Allow left/right wrap-around
+    if (col < 0) {
+        col = g_cols - 1;
+    } else if (col > g_cols - 1) {
+        col = 0;
+    }
+
+    return row * g_cols + col;
+}
+
+/*
+    This function handles creating all the cells, for a grid of g_rows x g_cols
+    dimensions.
+
+    An array of these cells is returned
+*/
+function createCells(g_rows, g_cols) {
+    let cells = [];
+    for (let row = 0; row < g_rows; row++){
+        for (let col = 0; col < g_cols; col++){
+            cells.push (new MazeCell(row, col));
+        }
+    }
+
+    return cells;
+}
+
+/*
+    This function is  called when the page loads, and handles all the initial
+    prep work.
+*/
+function init() {
+    // Used to calculate the total ELAPSED_TIME later on.
+    START_TIME = new Date();
+    console.log(`START_TIME:${START_TIME.valueOf()}ms`);
+
+    g_canvasElm        = document.getElementById("canvas");
+    g_canvasElm.width  = document.documentElement.clientWidth;
+    g_canvasElm.height = document.documentElement.clientHeight;
+
+    CANVAS_WIDTH  = parseInt(g_canvasElm.width);
+    CANVAS_HEIGHT = parseInt(g_canvasElm.height);
+
+    // The values for (CANVAS_* / 2.0) is used frequently enough, it's worth
+    // creating special variables for them.
+    CANVAS_WIDTH_HALF  = CANVAS_WIDTH  / 2.0;
+    CANVAS_HEIGHT_HALF = CANVAS_HEIGHT / 2.0;
+
+    g_context = g_canvasElm.getContext("2d");
+
+    // Check for any params passed as part of the URL.
+    ProcessSearchString(window.location.search);
+
+    document.addEventListener("keydown", onKeyDown);
+
+    g_cellHeight = Math.floor(CANVAS_HEIGHT / g_rows);
+    g_cellWidth  = Math.floor(CANVAS_WIDTH  / g_cols);
+
+    g_allCells = createCells(g_rows, g_cols);
+
+    // Start in the center of the grid.
+    currentCell = g_allCells[Math.floor(((g_rows / 2) *
+                    g_cols + (g_cols / 2)))];
+
+    currentCell.isStartCell = true;
+
+    paint();
+}
+
+/*
+    This function is mostly the same as from the CodingTrain implementation.
+
+    As explained in the video, the difference (and sign) between Cell A and
+    Cell B row or column, indicate which side Cell B is, relative to cell A.
+
+    Example: If...
+        CellA.col == 10
+        CellB.col == 9
+        CellA.col - CellB.col == 1
+        ...which means CellB is to to the left of A, thus CellA.Wall[LEFT]
+        should be set to false (knocking it down), and CellB.Wall[RIGHT] should
+        also be 'knocked down'.
+
+    For this version, this function has been modified to allow left/right
+    traversal, so that the path can travel around the entire circle (when
+    displayed in circular arrangement).
+*/
+function removeWalls(a, b) {
+    let x = a.col - b.col;
+    if (x == 1) {
+        a.walls[WALL.LEFT]  = false;
+        b.walls[WALL.RIGHT] = false;
+    } else if (x == -1) {
+        a.walls[WALL.RIGHT] = false;
+        b.walls[WALL.LEFT]  = false;
+
+    // These next two checks handle columnar wrap-around
+    } else if (a.col == 0 && b.col == g_cols - 1) {
+        a.walls[WALL.LEFT]  = false;
+        b.walls[WALL.RIGHT] = false;
+    } else if (b.col == 0 && a.col == g_cols - 1) {
+        a.walls[WALL.RIGHT]  = false;
+        b.walls[WALL.LEFT] = false;
+    }
+
+    let y = a.row - b.row;
+    if (y > 0) {
+        a.walls[WALL.TOP]    = false;
+        b.walls[WALL.BOTTOM] = false;
+    } else if (y < 0) {
+        a.walls[WALL.BOTTOM] = false;
+        b.walls[WALL.TOP]    = false;
+    }
+}
+
+/*
+    This function handles solving the maze.
+
+    It does this after the maze is created, and assumes the 'end' is the cell
+    with the highest stack length.
+
+    Basic algorithm:
+    o Check CurrentCells stacklength against it's neighbors.
+    o Choose the neighbor with the lowest stack length (chosenNeighbor)
+    o Add chosenNeighbor to the solved_maze_route array
+    o Make chosenNeighbor the CurrentCell
+    o Repeat until CurrentCell.stackLength == 0
+
+    This algo works because it starts at the cell with the highest stack length
+    and works backwards to the starting cell.
+
+    To get a better understanding, render the maze as rectangular.
+    Hit the "L" key to show the stack length for each cell.
+    Hit "S" to solve the maze, which will draw the solution path.
+
+    The most interesting parts are intersections between solution and dead ends.
+
+    The algorithm will pick the cell that leads back to the start, because it
+    will have a lower stack length.
+*/
+function solveMaze() {
+
+    // In case the solution routine is triggered before the maze has been
+    // created g_cellWithMaxStackLength will still be -1, and thus bail here.
+    if (!g_finished_creating_maze) {
+        console.log(`Maze not ready to solve yet!`);
+        return;
+    }
+
+    // If the maze solution has already been found, no need to solve again,
+    // so just bail.
+    if (solved_maze_route.length > 0) {
+        console.log(`Maze already solved (Path length:${solved_maze_route.length})}`);
+        return;
+    }
+
+    let fSolving = true;
+
+    // Start at the cell that has the longest Stack length, mark as being part
+    // of the solution, and add it as the first cell in the solution array.
+    currentCell = g_cellWithMaxStackLength;
+    currentCell.isPartOfSolution = true;
+
+    solved_maze_route.push(currentCell);
+
+    while (fSolving) {
+        // Determine the 4 neighbors.
+        // Including those on the opposite side, when the current cell is an
+        // edge cell.
+        let top    = g_allCells[getIndex(currentCell.row-1, currentCell.col)];
+        let right  = g_allCells[getIndex(currentCell.row, currentCell.col+1)];
+        let bottom = g_allCells[getIndex(currentCell.row+1, currentCell.col)];
+        let left   = g_allCells[getIndex(currentCell.row, currentCell.col-1)];
+
+        // Start with currentCell as the chosenNeighbor
+        let chosenNeighbor = currentCell;
+
+        for (let n = 0; n < currentCell.walls.length; n++) {
+            // Check wall == false, as that indicates wall removed and means
+            // it's traversable, so check its stackLength against the
+            // appropriate neighbor.
+            if (!currentCell.walls[n]) {
+                switch (n) {
+                    case WALL.TOP:
+                        if (top.stackLength < chosenNeighbor.stackLength) {
+                            chosenNeighbor = top;
+                        }
+                        break;
+                    case WALL.RIGHT:
+                        if (right.stackLength < chosenNeighbor.stackLength) {
+                            chosenNeighbor = right;
+                        }
+                        break;
+                    case WALL.BOTTOM:
+                        if (bottom.stackLength < chosenNeighbor.stackLength) {
+                            chosenNeighbor = bottom;
+                        }
+                        break;
+                    case WALL.LEFT:
+                        if (left.stackLength < chosenNeighbor.stackLength) {
+                            chosenNeighbor = left;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        // Mark the chosenNeighbor as part of the solution, set as currentCell,
+        // and add it to the solution array.
+        chosenNeighbor.isPartOfSolution = true;
+        currentCell = chosenNeighbor;
+        solved_maze_route.push(chosenNeighbor);
+
+        // End the routine when we've reached the starting cell.
+        if (currentCell.stackLength == 0) {
+            fSolving = false;
+        }
+    }
+
+    // With the solved maze array populated, generate the lines that need
+    // to be drawn. See the Cell.addSolutionLines method for details.
+    if (solved_maze_route.length > 0) {
+        for (let c = 0; c < solved_maze_route.length; c++) {
+            solved_maze_route[c].addSolutionLines();
+        }
+    }
+}
+
+/*
+    Main draw routine, called from the paint() function.
+
+    Pausing of the maze generation is handled in this function as well as
+    whether to draw maze in rectangular (cartesian) arrangement or as a
+    circular arrangement (which uses Polar Coordinate math).
+*/
+function draw() {
+    currentCell.visited = true;
+
+    // Keeping track of the stack length for the current cell is key to
+    // generating a solution later.
+    currentCell.setStackLength(g_cellStack.length);
+
+    if (!control_paused) {
+        let nextCell = currentCell.checkNeighbors();
+        if (nextCell) {
+            nextCell.visited = true;
+            g_cellStack.push(currentCell);
+            nextCell.setStackLength(g_cellStack.length);
+
+            removeWalls(currentCell, nextCell);
+
+            currentCell = nextCell;
+        } else if (g_cellStack.length > 0) {
+            currentCell = g_cellStack.pop();
+
+        // At this point, the maze is finished.
+        //
+        // FINISH_TIME will be 0, the first time this state is encountered,
+        // which means we should calculate the total elapsed time.
+        //
+        // Once the FINISH_TIME determined, then this part of the if/else chain
+        // will be skipped.
+        } else if (FINISH_TIME == 0) {
+            // Whatever cell has the longest stack length, is the Ending cell
+            g_cellWithMaxStackLength.isEndCell = true;
+
+            g_finished_creating_maze = true;
+
+            FINISH_TIME = new Date();
+
+            console.log(`FINISH_TIME :${FINISH_TIME.valueOf()}ms`);
+            console.log(`ELAPSED_TIME:${FINISH_TIME.valueOf() -
+                START_TIME.valueOf()}ms`);
+        }
+    }
+
+    for (let cell = 0; cell < g_allCells.length; cell++){
+        if (control_draw_as_circular) {
+            g_allCells[cell].drawAsCircular();
+        } else {
+            g_allCells[cell].drawAsCartesianCoords();
+        }
+
+        if (control_draw_stack_length) {
+            g_allCells[cell].drawStackLength();
+        }
+    }
+}
+
+function paint() {
+    if (!control_draw_as_bw) {
+        g_context.fillStyle = "rgb(0,0,0)";
+    } else {
+        g_context.fillStyle = "rgb(255,255,255)";
+    }
+    g_context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    g_context.globalAlpha = 1;
+
+    draw();
+
+    // Calculates timeout based on desired frames per second:  1000ms * 1/FPS
+    setTimeout(paint, (1000*(1/FRAME_IN_SECONDS)));
+}
+
+/*
+    This function handles keyDown events and is hooked up with:
+        document.addEventListener("keydown", onKeyDown);
+*/
+function onKeyDown(e) {
+    // Pause the maze creation
+    if ((e.code == "Space")) {
+        control_paused = !control_paused;
+
+    // Flip between showing maze in color or Black and White.
+    } else if (e.code == "KeyB") {
+       control_draw_as_bw = !control_draw_as_bw;
+
+    // Flip between showing maze as circular or rectangluar arrangement
+    } else if (e.code == "KeyC") {
+       control_draw_as_circular = !control_draw_as_circular;
+
+    // Show the stack size for a given cell
+    } else if (e.code == "KeyL") {
+       control_draw_stack_length = !control_draw_stack_length;
+
+    // Show the solution for the maze.
+    // also toggle the control_draw_solution flag to show/hide the solution.
+    //
+    // This is adding double-duty to this hotkey and relying on the solveMaze()
+    // function to do the right thing (bail early) if the solution was already
+    // found.
+    } else if (e.code == "KeyS") {
+        solveMaze();
+        control_draw_solution = !control_draw_solution;
+    }
+}
+
+/*
+    This function handles parsing the URL for rows and cols params.
+
+    Example for 40x40:
+    MazeGeneratorCircular.htm?rows=40&cols=40
+*/
+function ProcessSearchString(searchString) {
+    let urlsp = new URLSearchParams(searchString);
+
+    let rows   = urlsp.get('rows');
+    let cols   = urlsp.get('cols');
+    let asBW   = urlsp.get('asbw');
+
+    if (null != rows){
+        g_rows = parseInt(rows);
+    }
+
+    if (null != cols){
+        g_cols = parseInt(cols);
+    }
+
+    if (null != asBW) {
+        control_draw_as_bw = true;
+    }
+}
+
+</script>
+</head>
+<body>
+<canvas id="canvas" style="width:100%;height:100%"></canvas>
+</body>
+</html>
